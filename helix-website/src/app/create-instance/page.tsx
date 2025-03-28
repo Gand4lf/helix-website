@@ -12,6 +12,7 @@ import { Slider } from "@/components/ui/slider"
 import { Loader2, AlertCircle, CheckCircle2, Rocket } from "lucide-react"
 import { Footer } from "@/components/footer"
 import api, { InstanceConfig } from "@/app/api"
+import { useBilling } from "@flowglad/nextjs"
 
 const INSTANCE_TYPES = [
     {
@@ -84,6 +85,7 @@ function getDefaultRegion(): string {
 }
 
 export default function CreateInstancePage() {
+    const billing = useBilling();
     const router = useRouter()
     const [loading, setLoading] = useState(true)
     const [creating, setCreating] = useState(false)
@@ -97,6 +99,7 @@ export default function CreateInstancePage() {
         pricingType: "reserved"
     })
 
+    const { createCheckoutSession } = billing;
     const selectedType = INSTANCE_TYPES.find(type => type.value === formData.instanceType)
 
     // Auth check effect
@@ -155,6 +158,11 @@ export default function CreateInstancePage() {
         setCreating(true)
         setError(null)
         setCountdown(null)
+        if (!createCheckoutSession) {
+            setError("Failed to create checkout session. Please try again.")
+            setCreating(false)
+            return
+        }
 
         try {
             const user = await getCurrentUser()
@@ -179,8 +187,21 @@ export default function CreateInstancePage() {
                 ? selectedType.reservedPriceId
                 : selectedType.usagePriceId;
 
-            // Create Autumn Checkout Session
-            const response = await fetch('/api/create-checkout-session', {
+            await createCheckoutSession({
+                priceId: billing.catalog.products[0].defaultPrice.id,
+                successUrl: new URL('/payment-success', process.env.NEXT_PUBLIC_BASE_URL!).toString() + '?payment_id={PAYMENT_ID}',
+                cancelUrl: new URL('/create-instance', process.env.NEXT_PUBLIC_BASE_URL!).toString(),
+                autoRedirect: true,
+                outputMetadata: {
+                    region: instanceConfig.region,
+                    instanceName: instanceConfig.instanceName,
+                    vcpus: instanceConfig.vcpus,
+                    memory: instanceConfig.memory,
+                    storage: instanceConfig.storage,
+
+                }
+            });
+            /* const response = await fetch('/api/create-checkout-session', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -190,16 +211,16 @@ export default function CreateInstancePage() {
                     userId: user.userId,
                     instanceConfig,
                 }),
-            });
+            }); */
 
-            const { checkoutUrl, error } = await response.json();
+            //const { checkoutUrl, error } = await response.json();
 
             if (error) {
                 throw new Error(error);
             }
 
             // Redirect to Autumn Checkout
-            window.location.href = checkoutUrl;
+            // window.location.href = checkoutUrl;
         } catch (error: any) {
             console.error('Error creating instance:', error)
             setError(error.message || 'Failed to create instance. Please try again.')
